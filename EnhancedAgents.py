@@ -123,54 +123,53 @@ class MemoryEnabledAgent(AssistantAgent):
         
         # Read short term memory file
         self.memories = self.read_short_term_memory()
-        
+
         # Default AutoGen function
         self._process_received_message(message, sender, silent)
-               
+
         # If there is more than the initial message
         if len(self.chat_messages[sender]) > 1:
             # Construct the STM message to be placed at top of context
-            m0 = {}
-            m0['content']="Things you remember about {sender}: {short_term_memories}|".format(short_term_memories = self.memories, sender = self.sender_agent.name)
-            m0['role']='assistant'
-            
+            m0 = {
+                'content': "Things you remember about {sender}: {short_term_memories}|".format(
+                    short_term_memories=self.memories,
+                    sender=self.sender_agent.name,
+                ),
+                'role': 'assistant',
+            }
             # Overwrite top of context with STM
             self.chat_messages[sender][0] = m0
-        
-        # If there is only the initial message - only at chat initialization
+
         else: 
             # set sender_agent to sender, and format MEA system prompt to senders name
             self.sender_agent = sender # safe to set here
             self.system_message.format(sender=self.sender_agent.name)
-            
-        
+
+
         # Debugging callouts for monitoring chat progression/dynamics
-        print("DEBUG: NumChatMessages: " + str(len(self.chat_messages[sender])) + " vs Limit:" + str(self.DEFAULT_MAX_CONVO_LENGTH))
+        print(
+            f"DEBUG: NumChatMessages: {len(self.chat_messages[sender])} vs Limit:{str(self.DEFAULT_MAX_CONVO_LENGTH)}"
+        )
         print("DEBUG: ChatMessages:")
         print(self.chat_messages[sender])
         print("END DEBUG")
-        
+
         # If max length is hit, use compression ratio to trim window and then pass history to memory manager
         # Remove the oldest message, but not the first! First message is dynamic short term memory
         if self.chat_too_long():
             # index 0 is short term memory, index 1 is start of conversation, and where to do FILO
             # use compression ratio to determine trim number
             trim_num = int(len(self.chat_messages[sender])*self.DEFAULT_COMPRESSION_RATIO_CHAT)
-            lost_messages = []
-            
-            # pop corresponding messages out of chat history
-            for i in range(trim_num-1):
-                lost_messages.append(self.chat_messages[sender].pop(1))
-            
+            lost_messages = [self.chat_messages[sender].pop(1) for _ in range(trim_num-1)]
             # send messages to memory manager to process
             self.memory_manager.process_chat_section(lost_messages)
-            
+
             # Debugging callouts for monitoring chat message trimming
             print(f"DEBUG: Messages trimmed from chat:\n{lost_messages}")
 
         # Default AutoGen Logic
         if request_reply is False or request_reply is None and self.reply_at_receive[sender] is False:
-            return   
+            return
         reply = self.generate_reply(messages=self.chat_messages[sender], sender=sender)
         if reply is not None:
             self.send(reply, sender, silent=silent)
@@ -180,21 +179,18 @@ class MemoryEnabledAgent(AssistantAgent):
         # Does a memory directory exist? If not, make one
         if not os.path.exists(MEMORY_DIRECTORY):
             os.makedirs(MEMORY_DIRECTORY)
-        
-        # Does this specific agents memory exist? 
+
         if os.path.exists(self.memories_path):
             return self.read_short_term_memory()
-        
-        # If not, initialize the memory folder and files
-        else:
-            os.makedirs(self.memories_path)
-            with open(self.long_term_memory_path, 'w') as f:
-                pass
-                
-            with open(self.short_term_memory_path, 'w') as f:
-                pass
-                
-            return None
+
+        os.makedirs(self.memories_path)
+        with open(self.long_term_memory_path, 'w') as f:
+            pass
+
+        with open(self.short_term_memory_path, 'w') as f:
+            pass
+
+        return None
                 
     # Initialize the MEA's memory manager agent, pass in MEA object.
     def initialize_memory_manager(self):
@@ -206,12 +202,12 @@ class MemoryEnabledAgent(AssistantAgent):
         all_chats = self.chat_messages[self.sender_agent]
         filtered_chats = [c for c in all_chats if 'function_call' not in c]
         self.chat_messages[self.sender_agent] = filtered_chats
-        
+
         # Length logic.
-        if len(self.chat_messages[self.sender_agent]) > self.DEFAULT_MAX_CONVO_LENGTH:
-            return True
-        else:
-            return False
+        return (
+            len(self.chat_messages[self.sender_agent])
+            > self.DEFAULT_MAX_CONVO_LENGTH
+        )
     
     # Read and return short term memories, either as string or list.
     def read_short_term_memory(self, list_mode = False):
@@ -255,11 +251,8 @@ class MemoryEnabledAgent(AssistantAgent):
     def short_term_memory_full(self):
         with open(self.short_term_memory_path,'r') as f:
             num_memories = len(f.readlines()[0].split('|'))
-            
-        if num_memories > self.DEFAULT_SHORT_TERM_MEMORY_LIMIT:
-            return True
-        else:
-            return False
+
+        return num_memories > self.DEFAULT_SHORT_TERM_MEMORY_LIMIT
     
     # Call memory compression routine on STM - trim off some (FILO) - request memory manager to store it.    
     def short_term_to_long_term(self):
@@ -281,12 +274,11 @@ class MemoryEnabledAgent(AssistantAgent):
 
     # Get the function map to return to user proxy
     def get_function_map(self):
-        f_map = {}
         f_list = self.llm_config["functions"]
-        for i in range(len(f_list)):
-            f_map[f_list[i]['name']] = self.functions_for_map[i]
-    
-        return f_map
+        return {
+            f_list[i]['name']: self.functions_for_map[i]
+            for i in range(len(f_list))
+        }
         
 
 
@@ -341,10 +333,10 @@ class MemoryEnabledAgent_Manager(AssistantAgent):
         self.llm_config = self.gpt_config['config_list']
         self.config_list = self.gpt_config['config_list']
         self.llm_model = self.gpt_config['config_list'][0]['model']
-        
+
         # Regular __init__ for AssistentAgent
         super().__init__(
-            name= parent_agent.name + "_MemoryManager",
+            name=f"{parent_agent.name}_MemoryManager",
             llm_config={
                 "temperature": 0,
                 "request_timeout": 600,
@@ -376,20 +368,18 @@ class MemoryEnabledAgent_Manager(AssistantAgent):
                                     "type": "array",
                                     "items": {
                                         "type": "string",
-                                        "description": "thing or things to record and remember. Make sure each string is context complete, such that an outsider would understand it."
+                                        "description": "thing or things to record and remember. Make sure each string is context complete, such that an outsider would understand it.",
                                     },
                                 },
                             },
-                            "required": ["memories"]
-                        }
+                            "required": ["memories"],
+                        },
                     },
-                    
-                    
                 ],
             },
-            system_message = self.DEFAULT_MEM_MANAGER_MESSAGE,
+            system_message=self.DEFAULT_MEM_MANAGER_MESSAGE,
         )
-        
+
         # These are dummy user_agents to allow MMA code execution. There needs to be two as conversation histories were cross-contaminating on consequetive function calls.
         self.function_agent_LTM = UserProxyAgent(
             name="user_proxy_for_LTM",
@@ -427,12 +417,8 @@ class MemoryEnabledAgent_Manager(AssistantAgent):
     def read_long_term_memory(self):
         with open(self.parent_agent.long_term_memory_path, 'r') as f:
             mems =  f.readlines()
-     
-        if len(mems) == 0:
-            return []
-        
-        else:
-            return mems[0].split('|')       
+
+        return [] if len(mems) == 0 else mems[0].split('|')       
             
     # Trim off tail of short term memory to incorporate into long (FILO)
     # TODO: Have MMA return a single point summary of the condensed memories to affix to STM as shadow of now missing memories.
